@@ -515,15 +515,15 @@ if __name__ == '__main__':
 
 	# add arguments related to share config generation
 	workflowUIArgs = parser.add_argument_group('Workflow UI config generation options')
-	workflowUIArgs.add_argument('-n', '--process-name', default='', action='store', help='workflow process name to use in generated config (adds $jbpm prefix automatically)')
+	workflowUIArgs.add_argument('-n', '--process-name', default='', action='store', help='workflow process name to be used in generated config (adds $jbpm prefix automatically)')
 	workflowUIArgs.add_argument('-l', '--label-id', action='store_true', help='insert label-id attribute into each field tag')
-	workflowUIArgs.add_argument('-S', '--sets', action='store_true', help='add sets definitions and set correspnding field attribute')
+	workflowUIArgs.add_argument('-S', '--sets', action='store_true', help='add sets definitions and set correspoding field attribute')
 
 	# add arguments related to XML output
 	outputArgs = parser.add_argument_group('Output arguments')
 	outputArgs.add_argument('-f', '--format', action='store_true', help='format output with blanks (works only if -r specified)')
-	outputArgs.add_argument('-c', '--comments', action='store_true', help='add comments to result XML')
-	outputArgs.add_argument('-r', '--remove-blanks', action='store_true', help='remove all blank nodes from result XML')
+	outputArgs.add_argument('-c', '--comments', action='store_true', help='add comments to resulting XML')
+	outputArgs.add_argument('-r', '--remove-blanks', action='store_true', help='remove all blank nodes from resulting XML')
 
 	# parse arguments
 	args = parser.parse_args()
