@@ -479,6 +479,8 @@ class ConfigGenerator:
 		# get new xpath context
 		ctx = self.xml.xpathNewContext()
 		self.result = [x.prop('label-id')+'=' for x in ctx.xpathEval('/alfresco-config/config/forms/form/appearance/field[@label-id!=\'\']')]
+		# remove dplicates
+		self.result = list(set(self.result))
 
 	def printListResult(self):
 		'''Prints result list'''
