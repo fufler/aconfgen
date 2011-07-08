@@ -125,6 +125,9 @@ class ConfigGenerator:
 		except libxml2.libxmlError, e:
 			raise InvalidSchemaException('Task model schema is invalid')
 
+		# validate
+		if self.xml.schemaValidateDoc(valid_schema):
+			# throw exception, because document is not valid
 			raise InvalidTaskModelException('Task model XML is invalid.')
 
 		return 'http://www.alfresco.org/model/dictionary/1.0'
