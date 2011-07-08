@@ -333,8 +333,6 @@ class ConfigGenerator:
 				formNode.addChild(self.result.newDocComment('Fields appearance configuration'))
 			formNode.addChild(appearanceNode)
 			# add sets definitions
-			if self.addComments:
-				fieldVisNode.addChild(self.result.newDocComment('Controls sets'))
 			if addSets:
 				if self.addComments:
 					appearanceNode.addChild(self.result.newDocComment('Sets definition'))
