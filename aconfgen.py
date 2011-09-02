@@ -1,4 +1,4 @@
-#!/bin/env python2
+#!/usr/bin/python2
 # Copyright (C) 2011 Alex Ermakov
 #
 # This program is free software: you can redistribute it and/or modify
@@ -278,10 +278,11 @@ class ConfigGenerator:
 
 
 
-	def generateWorkflowUIConfig(self, processName, addLabelId = False, addSets = False):
-		'''Generates skeleton of share-custom-config.xml for workflow UI rendering.
+	def generateUIConfig(self, workflowModel, processName = '', addLabelId = False, addSets = False):
+		'''Generates skeleton of share-custom-config.xml for workflow/documentLibrary UI rendering.
 
 		Keyword arguments:
+			workflowModel -- treat model as workflow model			
 			processName -- process name to use in generated config (default '')
 			addLabelId -- insert label-id attribute into each filed tag (default False)
 			addSets -- add sets definitions to each form (default False)
@@ -296,7 +297,7 @@ class ConfigGenerator:
 		ctx = self.xml.xpathNewContext()
 		# register default namespace
 		ctx.xpathRegisterNs('dd', ns)
-		# build config for workflow UI rendering
+		# build config for UI rendering
 		# create new document and root node
 		self.result = libxml2.newDoc('1.0')
 		root = self.result.newDocNode(None, 'alfresco-config', None)
@@ -308,13 +309,18 @@ class ConfigGenerator:
 			ctx.setContextNode(typeNode)
 			# create config node
 			configNode = self.result.newDocNode(None, 'config', None)
-			# if this is startTask then we should use another condition
-			if 'bpm:startTask' in [x.content for x in ctx.xpathEval('dd:parent')]:
-				configNode.setProp('evalutor', 'string-compare')
-				configNode.setProp('condition', 'jbpm$'+processName)
+			# choose evaluator based on model type
+			if workflowModel: 
+				# if this is startTask then we should use another condition
+				if 'bpm:startTask' in [x.content for x in ctx.xpathEval('dd:parent')]:
+					configNode.setProp('evaluator', 'string-compare')
+					configNode.setProp('condition', 'jbpm$'+processName)
+				else:
+					configNode.setProp('evaluator', 'task-type')
+					configNode.setProp('condition', typeNode.prop('name'))
 			else:
-				configNode.setProp('evalutor', 'task-type')
-				configNode.setProp('condition', typeNode.prop('name'))
+				configNode.setProp('evaluator', 'node-type')
+				configNode.setProp('condition', typeNode.prop('name'))				
 			if self.addComments:
 				root.addChild(self.result.newDocComment('Form config for '+typeNode.prop('name')+' rendering'))
 			root.addChild(configNode)
@@ -337,12 +343,13 @@ class ConfigGenerator:
 				if self.addComments:
 					appearanceNode.addChild(self.result.newDocComment('Sets definition'))
 				# top set
-				setNode = self.result.newDocNode(None, 'set', None)
-				setNode.setProp('id', 'info')
-				setNode.setProp('appearance', '')
-				if addLabelId:
-					setNode.setProp('label-id', 'workflow.set.task.info')
-				appearanceNode.addChild(setNode)
+				if workflowModel:
+					setNode = self.result.newDocNode(None, 'set', None)
+					setNode.setProp('id', 'info')
+					setNode.setProp('appearance', '')
+					if addLabelId:
+						setNode.setProp('label-id', 'workflow.set.task.info')
+					appearanceNode.addChild(setNode)
 				# other set
 				setNode = self.result.newDocNode(None, 'set', None)
 				setNode.setProp('id', 'other')
@@ -351,26 +358,43 @@ class ConfigGenerator:
 					setNode.setProp('label-id', 'workflow.set.other')
 				appearanceNode.addChild(setNode)
 				# items set
-				setNode = self.result.newDocNode(None, 'set', None)
-				setNode.setProp('id', 'items')
-				setNode.setProp('appearance', 'title')
-				if addLabelId:
-					setNode.setProp('label-id', 'workflow.set.items')
-				appearanceNode.addChild(setNode)
-				# response set
-				if 'bpm:startTask' not in [x.content for x in ctx.xpathEval('dd:parent')]:
+				if workflowModel:
 					setNode = self.result.newDocNode(None, 'set', None)
-					setNode.setProp('id', 'response')
+					setNode.setProp('id', 'items')
 					setNode.setProp('appearance', 'title')
 					if addLabelId:
-						setNode.setProp('label-id', 'workflow.set.response')
+						setNode.setProp('label-id', 'workflow.set.items')
 					appearanceNode.addChild(setNode)
+				# response set
+				if workflowModel:
+					if 'bpm:startTask' not in [x.content for x in ctx.xpathEval('dd:parent')]:
+						setNode = self.result.newDocNode(None, 'set', None)
+						setNode.setProp('id', 'response')
+						setNode.setProp('appearance', 'title')
+						if addLabelId:
+							setNode.setProp('label-id', 'workflow.set.response')
+						appearanceNode.addChild(setNode)
 
+			# for each property ans association generate field elements
+			if self.addComments:
+				appearanceNode.addChild(self.result.newDocComment('Fields'))			
+			properties = [x.prop('name') for x in ctx.xpathEval('dd:properties/dd:property')+ctx.xpathEval('dd:associations/dd:association')]
+			for property in properties:
+				# create show and field nodes
+				showNode = self.result.newDocNode(None, 'show', None)
+				showNode.setProp('id', property)
+				fieldVisNode.addChild(showNode)
+				fieldNode = self.result.newDocNode(None, 'field', None)
+				fieldNode.setProp('id', property)
+				if addLabelId:
+					fieldNode.setProp('label-id', 'label.'+property.replace(':','_'))
+				if addSets:
+					fieldNode.setProp('set', 'other')
+				appearanceNode.addChild(fieldNode)
+					
 			# populate all aspects for type
 			aspects = [x.content for x in ctx.xpathEval('dd:mandatory-aspects/dd:aspect')]
 			# for each aspect try to find its definition to extract all properties and associations
-			if self.addComments:
-				appearanceNode.addChild(self.result.newDocComment('Fields'))
 			for aspect in aspects:
 				aspectDefNode = ctx.xpathEval('/dd:model/dd:aspects/dd:aspect[@name=\''+aspect+'\']')
 				# if list is not empty then choose first element (because we expect at most one aspect definition)
@@ -406,40 +430,41 @@ class ConfigGenerator:
 						fieldNode.setProp('set', 'other')
 					appearanceNode.addChild(fieldNode)
 			# add items field
-			showNode = self.result.newDocNode(None, 'show', None)
-			showNode.setProp('id', 'packageItems')
-			fieldVisNode.addChild(showNode)
-			fieldNode = self.result.newDocNode(None, 'field', None)
-			fieldNode.setProp('id', 'packageItems')
-			if addSets:
-				fieldNode.setProp('set', 'items')
-			appearanceNode.addChild(fieldNode)
-			# add transitions field
-			ctx.setContextNode(typeNode)
-			if 'bpm:startTask' not in [x.content for x in ctx.xpathEval('dd:parent')]:
+			if workflowModel:
 				showNode = self.result.newDocNode(None, 'show', None)
-				showNode.setProp('id', 'transitions')
+				showNode.setProp('id', 'packageItems')
 				fieldVisNode.addChild(showNode)
 				fieldNode = self.result.newDocNode(None, 'field', None)
-				fieldNode.setProp('id', 'transitions')
+				fieldNode.setProp('id', 'packageItems')
 				if addSets:
-					fieldNode.setProp('set', 'response')
+					fieldNode.setProp('set', 'items')
 				appearanceNode.addChild(fieldNode)
-			else:
-				# create form for workflow details rendering
-				configNode = configNode.copyNodeList()
-				# replace condition
-				configNode.setProp('evalutor', 'task-type')
-				configNode.setProp('condition', typeNode.prop('name'))
-				if self.addComments:
-					root.addChild(self.result.newDocComment('Form config to display workflow info'))
-				# remove info set
-				if addSets:
-					resctx = self.result.xpathNewContext()
-					resctx.setContextNode(configNode)
-					resctx.xpathEval('forms/form/appearance/set[@id=\'info\']')[0].unlinkNode()
-				# add to tree
-				root.addChild(configNode)
+				# add transitions field
+				ctx.setContextNode(typeNode)
+				if 'bpm:startTask' not in [x.content for x in ctx.xpathEval('dd:parent')]:
+					showNode = self.result.newDocNode(None, 'show', None)
+					showNode.setProp('id', 'transitions')
+					fieldVisNode.addChild(showNode)
+					fieldNode = self.result.newDocNode(None, 'field', None)
+					fieldNode.setProp('id', 'transitions')
+					if addSets:
+						fieldNode.setProp('set', 'response')
+					appearanceNode.addChild(fieldNode)
+				else:
+					# create form for workflow details rendering
+					configNode = configNode.copyNodeList()
+					# replace condition
+					configNode.setProp('evaluator', 'task-type')
+					configNode.setProp('condition', typeNode.prop('name'))
+					if self.addComments:
+						root.addChild(self.result.newDocComment('Form config to display workflow info'))
+					# remove info set
+					if addSets:
+						resctx = self.result.xpathNewContext()
+						resctx.setContextNode(configNode)
+						resctx.xpathEval('forms/form/appearance/set[@id=\'info\']')[0].unlinkNode()
+					# add to tree
+					root.addChild(configNode)
 
 	def generateWorkflowBundle(self):
 		'''Generates workflow internationalization bundle'''
@@ -503,6 +528,7 @@ if __name__ == '__main__':
 	actionArgs.add_argument('-s', '--swimlanes', action='store_true', help='generate swimlane tags for process definition')
 	actionArgs.add_argument('-m', '--model', action='store_true', help='generate skeleton of workflow model XML')
 	actionArgs.add_argument('-w', '--workflow-ui', action='store_true', help='generate skeleton of share-config-custom.xml for workflow UI rendering')
+	actionArgs.add_argument('-L', '--model-ui', action='store_true', help='generate skeleton of share-config-custom.xml for model UI rendering')	
 	actionArgs.add_argument('-W', '--workflow-i18n', action='store_true', help='generate workflow internationalization bundle')
 	actionArgs.add_argument('-e', '--share-i18n', action='store_true', help='generate share internationalization bundle')
 
@@ -544,7 +570,10 @@ if __name__ == '__main__':
 			confgen.generateTaskModel(args.metadata, args.mandatory_aspects, args.item_actions, args.aspect)
 		elif args.workflow_ui:
 			# generate workflow UI config
-			confgen.generateWorkflowUIConfig(args.process_name, args.label_id, args.sets)
+			confgen.generateUIConfig(args.process_name, True, args.label_id, args.sets)
+		elif args.model_ui:
+			# generate model UI config
+			confgen.generateUIConfig('', False, args.label_id, args.sets)			
 		elif args.workflow_i18n:
 			# generate workflow internationalization bundle
 			confgen.generateWorkflowBundle()
@@ -565,3 +594,4 @@ if __name__ == '__main__':
 	else:
 		# print strings
 		confgen.printListResult()
+		
