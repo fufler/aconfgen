@@ -282,7 +282,7 @@ class ConfigGenerator:
 		'''Generates skeleton of share-custom-config.xml for workflow/documentLibrary UI rendering.
 
 		Keyword arguments:
-			workflowModel -- treat model as workflow model			
+			workflowModel -- treat model as workflow model
 			processName -- process name to use in generated config (default '')
 			addLabelId -- insert label-id attribute into each filed tag (default False)
 			addSets -- add sets definitions to each form (default False)
@@ -310,7 +310,7 @@ class ConfigGenerator:
 			# create config node
 			configNode = self.result.newDocNode(None, 'config', None)
 			# choose evaluator based on model type
-			if workflowModel: 
+			if workflowModel:
 				# if this is startTask then we should use another condition
 				if 'bpm:startTask' in [x.content for x in ctx.xpathEval('dd:parent')]:
 					configNode.setProp('evaluator', 'string-compare')
@@ -320,7 +320,7 @@ class ConfigGenerator:
 					configNode.setProp('condition', typeNode.prop('name'))
 			else:
 				configNode.setProp('evaluator', 'node-type')
-				configNode.setProp('condition', typeNode.prop('name'))				
+				configNode.setProp('condition', typeNode.prop('name'))
 			if self.addComments:
 				root.addChild(self.result.newDocComment('Form config for '+typeNode.prop('name')+' rendering'))
 			root.addChild(configNode)
@@ -377,7 +377,7 @@ class ConfigGenerator:
 
 			# for each property ans association generate field elements
 			if self.addComments:
-				appearanceNode.addChild(self.result.newDocComment('Fields'))			
+				appearanceNode.addChild(self.result.newDocComment('Fields'))
 			properties = [x.prop('name') for x in ctx.xpathEval('dd:properties/dd:property')+ctx.xpathEval('dd:associations/dd:association')]
 			for property in properties:
 				# create show and field nodes
@@ -391,7 +391,7 @@ class ConfigGenerator:
 				if addSets:
 					fieldNode.setProp('set', 'other')
 				appearanceNode.addChild(fieldNode)
-					
+
 			# populate all aspects for type
 			aspects = [x.content for x in ctx.xpathEval('dd:mandatory-aspects/dd:aspect')]
 			# for each aspect try to find its definition to extract all properties and associations
@@ -528,7 +528,7 @@ if __name__ == '__main__':
 	actionArgs.add_argument('-s', '--swimlanes', action='store_true', help='generate swimlane tags for process definition')
 	actionArgs.add_argument('-m', '--model', action='store_true', help='generate skeleton of workflow model XML')
 	actionArgs.add_argument('-w', '--workflow-ui', action='store_true', help='generate skeleton of share-config-custom.xml for workflow UI rendering')
-	actionArgs.add_argument('-L', '--model-ui', action='store_true', help='generate skeleton of share-config-custom.xml for model UI rendering')	
+	actionArgs.add_argument('-L', '--model-ui', action='store_true', help='generate skeleton of share-config-custom.xml for model UI rendering')
 	actionArgs.add_argument('-W', '--workflow-i18n', action='store_true', help='generate workflow internationalization bundle')
 	actionArgs.add_argument('-e', '--share-i18n', action='store_true', help='generate share internationalization bundle')
 
@@ -560,7 +560,6 @@ if __name__ == '__main__':
 	except libxml2.libxmlError, e:
 		print('Cannot parse XML. Terminating.')
 		sys.exit(1);
-
 	try:
 		if args.swimlanes:
 			# add swimlane tags
@@ -570,10 +569,10 @@ if __name__ == '__main__':
 			confgen.generateTaskModel(args.metadata, args.mandatory_aspects, args.item_actions, args.aspect)
 		elif args.workflow_ui:
 			# generate workflow UI config
-			confgen.generateUIConfig(args.process_name, True, args.label_id, args.sets)
+			confgen.generateUIConfig(True, args.process_name, args.label_id, args.sets)
 		elif args.model_ui:
 			# generate model UI config
-			confgen.generateUIConfig('', False, args.label_id, args.sets)			
+			confgen.generateUIConfig('', False, args.label_id, args.sets)
 		elif args.workflow_i18n:
 			# generate workflow internationalization bundle
 			confgen.generateWorkflowBundle()
@@ -594,4 +593,3 @@ if __name__ == '__main__':
 	else:
 		# print strings
 		confgen.printListResult()
-		
