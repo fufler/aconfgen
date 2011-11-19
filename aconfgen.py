@@ -1,4 +1,4 @@
-#!/usr/bin/python2
+#!/usr/bin/python
 # Copyright (C) 2011 Alex Ermakov
 #
 # This program is free software: you can redistribute it and/or modify
@@ -22,6 +22,10 @@ import sys
 import re
 import libxml2
 
+# default namespaces for definition files
+defNS = {'jpdl-3.1': 'urn:jbpm.org:jpdl-3.1',
+         'jpdl-3.2': 'urn:jbpm.org:jpdl-3.2',
+         'bpmn-2.0': 'http://www.omg.org/spec/BPMN/20100524/MODEL'}
 # exception classes
 class ValidationException(Exception):
 	'''Super class for validation exceptions.'''
@@ -40,6 +44,10 @@ class InvalidTaskModelException(ValidationException):
 	'''Exception to raise when task model is invalid.'''
 	pass
 
+class InvalidActionException(ValidationException):
+	'''Exception to raise when invalid action was invoked.'''
+	pass
+
 # config generator class
 class ConfigGenerator:
 	'''ConfigGenerator class. Generates skeleton of Alfresco configuration files'''
@@ -48,7 +56,7 @@ class ConfigGenerator:
 		'''Dummy function to suppress error messages.'''
 		pass
 
-	def __init__(self, xmlFile, addComments = False):
+	def __init__(self, xmlFile, addComments=False):
 		'''Class constructor. Collects some information needed for config generation, loads XML.
 
 		Keyword arguments:
@@ -86,37 +94,35 @@ class ConfigGenerator:
 
 
 	def validateProcessDefinition(self):
-		'''Validates process definition and return default namespace on success.'''
-		# try to validate XML as jpdl-3.1
-		ns = 'urn:jbpm.org:jpdl-3.1'
-		try:
-			# load 3.1 schema
-			schema_parser_ctx = libxml2.schemaNewParserCtxt(os.path.join(self.scriptPath, 'schemas', 'jpdl-3.1.xsd'))
-			schema = schema_parser_ctx.schemaParse()
-			valid_schema = schema.schemaNewValidCtxt()
-		except libxml2.libxmlError, e:
-			raise InvalidSchemaException('jpdl-3.1 schema is invalid')
-		# validate
-		if self.xml.schemaValidateDoc(valid_schema):
-			# it's not jpdl-3.1, try to validate as jpdl-3.2
-			ns = 'urn:jbpm.org:jpdl-3.2'
+		'''Validates document and returns it's language id on success.
+		Exception is raised in any other case'''
+
+		schemas = {'jpdl-3.1': 'jpdl-3.1.xsd', 'jpdl-3.2': 'jpdl-3.2.xsd', 'bpmn-2.0' : 'BPMN20.xsd'};
+		# iterate through all schemas and try to validate XML
+		definitionLang = None;
+		for lang in schemas:
 			try:
-				# load 3.2 schema
-				schema_parser_ctx = libxml2.schemaNewParserCtxt(os.path.join(self.scriptPath, 'schemas', 'jpdl-3.2.xsd'))
+				# load schema
+				schema_parser_ctx = libxml2.schemaNewParserCtxt(os.path.join(self.scriptPath, 'schemas', schemas[lang]))
 				schema = schema_parser_ctx.schemaParse()
 				valid_schema = schema.schemaNewValidCtxt()
 			except libxml2.libxmlError, e:
-				raise InvalidSchemaException('jpdl-3.2 schema is invalid')
+				raise InvalidSchemaException('Schema for '+lang + ' is invalid.')
+
 			# validate
-			if self.xml.schemaValidateDoc(valid_schema):
-				# throw exception, because document is not valid
-				raise InvalidProcDefException('This is not valid jpdl-3.1 or jpdl-3.2 XML.');
+			if not self.xml.schemaValidateDoc(valid_schema):
+				# xml validate, store result
+				definitionLang = lang;
 
-		# return default namespace
-		return ns
+		if not definitionLang:
+			# language not found, raise exception
+			raise InvalidProcDefException("Process definition is invalid.")
 
-	def validateTaskModel(self):
+		return definitionLang;
+
+	def validateContentModel(self):
 		'''Validates task model XML and returns default namespace on success'''
+
 		try:
 			# load schema
 			schema_parser_ctx = libxml2.schemaNewParserCtxt(os.path.join(self.scriptPath, 'schemas', 'modelSchema.xsd'))
@@ -133,22 +139,31 @@ class ConfigGenerator:
 		return 'http://www.alfresco.org/model/dictionary/1.0'
 
 
+	def buildNamespace(self, prefix):
+		'''Helper to construct namespace by prefix'''
+		return 'https://github.com/fufler/aconfgen/prefix/' + prefix
+
 	def addSwimlanes(self):
 		'''Parses process definition and adds swimlane tags to the top of it.'''
 
 		# set result type
 		self.xmlResult = True
 		# validate process definition XML
-		ns = self.validateProcessDefinition()
+		lang = self.validateProcessDefinition()
+		if lang in defNS:
+			ns = defNS[lang]
+		else:
+			raise InvalidActionException('Swimlanes adding supported only for jpdl process definitions.');
+
 		# clone xml
 		self.result = copy.copy(self.xml)
 		# get new xpath context
 		ctx = self.result.xpathNewContext()
 		# register default namespace
-		ctx.xpathRegisterNs('dd', ns)
+		ctx.xpathRegisterNs('defaultns', ns)
 
 		# populate swimlane list
-		swimlanes = [x.prop('swimlane') for x in ctx.xpathEval('/dd:process-definition/dd:task-node/dd:task[@swimlane != \'\']')]
+		swimlanes = [x.prop('swimlane') for x in ctx.xpathEval('/defaultns:process-definition/defaultns:task-node/defaultns:task[@swimlane != \'\']')]
 		# iterate through swimlane list and generate nodes
 		for swimlane in swimlanes:
 			# create new node
@@ -161,14 +176,14 @@ class ConfigGenerator:
 				assignmentNode.setProp('class', 'org.alfresco.repo.workflow.jbpm.AlfrescoAssignment')
 				swimlaneNode.addChild(assignmentNode)
 				# set actor
-				assignmentNode.addChild(self.result.newDocNode(None, 'actor', '#{'+swimlane+'}'))
+				assignmentNode.addChild(self.result.newDocNode(None, 'actor', '#{' + swimlane + '}'))
 			# add comment if needed
 			if self.addComments:
-				self.result.getRootElement().addChild(self.result.newDocComment("'"+swimlane+"' swimlane"))
+				self.result.getRootElement().addChild(self.result.newDocComment("'" + swimlane + "' swimlane"))
 			# add swimlane to tree
 			self.result.getRootElement().addChild(swimlaneNode)
 
-	def generateTaskModel(self, addMetaData = False, addMandatoryAspects = False, addItemActions = False, addAspectDef = False):
+	def generateTaskModel(self, addMetaData=False, addMandatoryAspects=False, addItemActions=False, addAspectDef=False):
 		'''Parses process definition and generates task model for it.
 
 		Keyword arguments:
@@ -182,11 +197,7 @@ class ConfigGenerator:
 		# set result type
 		self.xmlResult = True
 		# validate process definition XML
-		ns = self.validateProcessDefinition()
-		# get new xpath context
-		ctx = self.xml.xpathNewContext()
-		# register default namespace
-		ctx.xpathRegisterNs('dd', ns)
+		lang = self.validateProcessDefinition()
 		# create model skeleton
 		modelTemplate = '''<?xml version='1.0'?><model xmlns='http://www.alfresco.org/model/dictionary/1.0'></model>'''
 		importTemplate = '''<imports><import uri="http://www.alfresco.org/model/dictionary/1.0" prefix="d" /><import uri="http://www.alfresco.org/model/bpm/1.0" prefix="bpm" /></imports>'''
@@ -198,22 +209,64 @@ class ConfigGenerator:
 		# add metadata
 		if self.addComments:
 			root.addChild(self.result.newDocComment('Model metadata'))
-		root.addChild(self.result.newDocNode(None, 'description', 'Task model for '+self.xmlFile))
+		root.addChild(self.result.newDocNode(None, 'description', 'Task model for ' + self.xmlFile))
 		root.addChild(self.result.newDocNode(None, 'author', os.getenv('USER')))
 		root.addChild(self.result.newDocNode(None, 'version', '1.0'))
 		# add import section
 		if self.addComments:
 			root.addChild(self.result.newDocComment('Import necessary namespaces'))
 		root.addChild(libxml2.parseMemory(importTemplate, len(importTemplate)).getRootElement())
-		# populate task list
-		tasks = ctx.xpathEval('/dd:process-definition/dd:*/dd:task')
+		# build array containing information about tasks
+		ctx = self.xml.xpathNewContext()
+		ns = defNS[lang]
+		# register default namespace
+		ctx.xpathRegisterNs('defaultns', ns)
+		if lang == 'bpmn-2.0':
+			# it's an activiti file
+			# register activiti namespace
+			ctx.xpathRegisterNs('activiti', 'http://activiti.org/bpmn')
+			tasks = {
+                      x.prop('formKey'):
+                      {
+                        'id': x.prop('id'),
+                        'parent': x.name,
+                        'transitions':[]
+                      }
+                      for x in ctx.xpathEval('/defaultns:definitions/defaultns:process/*[@activiti:formKey!=""]')
+                    }
+			# find all transitions
+			for task in tasks:
+				trans = ctx.xpathEval('/defaultns:definitions/defaultns:process/defaultns:sequenceFlow[@sourceRef="'+tasks[task]["id"]+'"]')
+				if len(trans) != 1:
+					raise InvalidProcDefException('Task has no/invalid outcome.')
+				gateway = trans[0].prop('targetRef')
+				trans = [x.prop('targetRef') for x in ctx.xpathEval('/defaultns:definitions/defaultns:process/defaultns:sequenceFlow[@sourceRef="'+gateway+'"]')]
+				if len(trans) == 0:
+					trans = ['done']
+				tasks[task]["transitions"] = trans
+		else:
+			# it's a jpdl file
+			# populate task list
+			tasks = {
+                      x.prop('name'):
+                      {
+                        'parent': x.parent.name,
+                        'transitions':[]
+                      }
+                      for x in ctx.xpathEval('/defaultns:process-definition/defaultns:*/defaultns:task')
+                    }
+
 		# iterate through all task and build task model and collect namespaces
 		namespaces = set()
-		parentNode = {'start-state': 'bpm:startTask', 'task-node': 'bpm:workflowTask'}
+		parentNode = {
+                       'start-state': 'bpm:startTask',
+                       'task-node': 'bpm:workflowTask',
+                       'startEvent': 'bpm:startTask',
+                       'userTask': 'bpm:workflowTask'
+                     }
 		typesNode = self.result.newDocNode(None, 'types', None)
 		ns = ''
-		for task in tasks:
-			taskName = task.prop('name')
+		for taskName in tasks:
 			# extract namespace
 			gr = re.search('^(.+):(.*)$', taskName)
 			if gr:
@@ -225,20 +278,62 @@ class ConfigGenerator:
 			typeNode = self.result.newDocNode(None, 'type', None)
 			typeNode.setProp('name', taskName)
 			# add parent node
-			typeNode.addChild(self.result.newDocNode(None, 'parent', parentNode[task.parent.name]))
+			task = tasks[taskName]
+			parentNodeType = task["parent"]
+			activitiOutcome = False
+			if parentNodeType in ['start-state', 'startEvent']:
+				typeNode.addChild(self.result.newDocNode(None, 'parent', 'bpm:startTask'))
+			elif len(task['transitions']) > 0:
+				typeNode.addChild(self.result.newDocNode(None, 'parent', 'bpm:activitiOutcomeTask'))
+				activitiOutcome = True
+			else:
+				typeNode.addChild(self.result.newDocNode(None, 'parent', 'bpm:workflowTask'))
+			# add outcome for activiti tasks
+			if activitiOutcome:
+				if self.addComments:
+					typeNode.addChild(self.result.newDocComment('Add outcome property for activiti tasks'))
+				propertiesNode = self.result.newDocNode(None, 'properties', None)
+				propertyNode =  self.result.newDocNode(None, 'property', None)
+				propertiesNode.addChild(propertyNode)
+				propertyNode.setProp('name', taskName+'Outcome')
+				propertyNode.addChild(self.result.newDocNode(None, 'type', 'd:text'))
+				propertyNode.addChild(self.result.newDocNode(None, 'default', task['transitions'][0]))
+				constraintsNode =  self.result.newDocNode(None, 'constraints', None)
+				propertyNode.addChild(constraintsNode)
+				constraintNode =  self.result.newDocNode(None, 'constraint', None)
+				constraintNode.setProp('type', 'LIST')
+				constraintNode.setProp('name', taskName+'OutcomeConstraint')
+				constraintsNode.addChild(constraintNode)
+				parameterNode = self.result.newDocNode(None, 'parameter', None)
+				parameterNode.setProp('name', 'allowedValues')
+				constraintNode.addChild(parameterNode)
+				listNode = self.result.newDocNode(None, 'list', None)
+				parameterNode.addChild(listNode)
+				for x in task['transitions']:
+					listNode.addChild(self.result.newDocNode(None, 'value', x))
+				typeNode.addChild(propertiesNode)
+
+
 			# add overrides section
 			if addItemActions:
 				if self.addComments:
 					typeNode.addChild(self.result.newDocComment('overrides default properties values'))
-				typeNode.addChild(libxml2.parseMemory(overridesTemplate, len(overridesTemplate)).getRootElement())
+				overridesNode = libxml2.parseMemory(overridesTemplate, len(overridesTemplate)).getRootElement()
+				if activitiOutcome:
+					# add property name of activiti outcome
+					propertyNode = self.result.newDocNode(None, 'property', None)
+					overridesNode.addChild(propertyNode)
+					propertyNode.setProp('name', 'bpm:outcomePropertyName')
+					propertyNode.addChild(self.result.newDocNode(None, 'default', taskName.replace(ns+':', '{'+self.buildNamespace(ns)+'}')))
+				typeNode.addChild(overridesNode)
 			# add mandatory aspects
 			if addMandatoryAspects:
 				aspectsNode = self.result.newDocNode(None, 'mandatory-aspects', None)
 				# add bpm:assignee for start task
-				if task.parent.name == 'start-state':
+				if parentNodeType == 'start-state':
 					aspectsNode.addChild(self.result.newDocNode(None, 'aspect', 'bpm:assignee'))
 				# add custom aspect
-				aspectsNode.addChild(self.result.newDocNode(None, 'aspect', ns+':customAspect'))
+				aspectsNode.addChild(self.result.newDocNode(None, 'aspect', ns + ':customAspect'))
 				# add aspects to tree
 				if self.addComments:
 					typeNode.addChild(self.result.newDocComment('Task mandatory aspects'))
@@ -246,8 +341,9 @@ class ConfigGenerator:
 
 			# add node to tree
 			if self.addComments:
-				typesNode.addChild(self.result.newDocComment('Type for '+taskName+' task'))
+				typesNode.addChild(self.result.newDocComment('Type for ' + taskName + ' task'))
 			typesNode.addChild(typeNode)
+
 
 		# add found namespaces to task model
 		namespacesNode = self.result.newDocNode(None, 'namespaces', None)
@@ -255,7 +351,7 @@ class ConfigGenerator:
 			# create new node
 			namespaceNode = self.result.newDocNode(None, 'namespace', None)
 			namespaceNode.setProp('prefix', ns)
-			namespaceNode.setProp('uri', 'https://github.com/fufler/aconfgen/prefix/'+ns)
+			namespaceNode.setProp('uri', self.buildNamespace(ns))
 			# add node to tree
 			namespacesNode.addChild(namespaceNode)
 
@@ -271,14 +367,14 @@ class ConfigGenerator:
 			if self.addComments:
 				root.addChild(self.result.newDocComment('Custom aspect definition sample'))
 			# replace ns: with last found namespace (we expect exact one)
-			customAspectTemplate = customAspectTemplate.replace('ns:', ns+':')
+			customAspectTemplate = customAspectTemplate.replace('ns:', ns + ':')
 			root.addChild(libxml2.parseMemory(customAspectTemplate, len(customAspectTemplate)).getRootElement())
 		# set models name using last found namespace
-		self.result.getRootElement().setProp('name', ns+':samplemodel')
+		self.result.getRootElement().setProp('name', ns + ':samplemodel')
 
 
 
-	def generateUIConfig(self, workflowModel, processName = '', addLabelId = False, addSets = False):
+	def generateUIConfig(self, workflowModel, processName='', addLabelId=False, addSets=False):
 		'''Generates skeleton of share-custom-config.xml for workflow/documentLibrary UI rendering.
 
 		Keyword arguments:
@@ -292,18 +388,18 @@ class ConfigGenerator:
 		# set result type
 		self.xmlResult = True
 		# validate xml
-		ns = self.validateTaskModel()
+		ns = self.validateContentModel()
 		# get new xpath context
 		ctx = self.xml.xpathNewContext()
 		# register default namespace
-		ctx.xpathRegisterNs('dd', ns)
+		ctx.xpathRegisterNs('defaultns', ns)
 		# build config for UI rendering
 		# create new document and root node
 		self.result = libxml2.newDoc('1.0')
 		root = self.result.newDocNode(None, 'alfresco-config', None)
 		self.result.setRootElement(root)
 		# populate task type list
-		types = ctx.xpathEval('/dd:model/dd:types/dd:type')
+		types = ctx.xpathEval('/defaultns:model/defaultns:types/defaultns:type')
 		# iterate throught all types and build config
 		for typeNode in types:
 			ctx.setContextNode(typeNode)
@@ -312,9 +408,9 @@ class ConfigGenerator:
 			# choose evaluator based on model type
 			if workflowModel:
 				# if this is startTask then we should use another condition
-				if 'bpm:startTask' in [x.content for x in ctx.xpathEval('dd:parent')]:
+				if 'bpm:startTask' in [x.content for x in ctx.xpathEval('defaultns:parent')]:
 					configNode.setProp('evaluator', 'string-compare')
-					configNode.setProp('condition', 'jbpm$'+processName)
+					configNode.setProp('condition', processName)
 				else:
 					configNode.setProp('evaluator', 'task-type')
 					configNode.setProp('condition', typeNode.prop('name'))
@@ -322,7 +418,7 @@ class ConfigGenerator:
 				configNode.setProp('evaluator', 'node-type')
 				configNode.setProp('condition', typeNode.prop('name'))
 			if self.addComments:
-				root.addChild(self.result.newDocComment('Form config for '+typeNode.prop('name')+' rendering'))
+				root.addChild(self.result.newDocComment('Form config for ' + typeNode.prop('name') + ' rendering'))
 			root.addChild(configNode)
 			# create forms and form nodes
 			formsNode = self.result.newDocNode(None, 'forms', None)
@@ -367,7 +463,7 @@ class ConfigGenerator:
 					appearanceNode.addChild(setNode)
 				# response set
 				if workflowModel:
-					if 'bpm:startTask' not in [x.content for x in ctx.xpathEval('dd:parent')]:
+					if 'bpm:startTask' not in [x.content for x in ctx.xpathEval('defaultns:parent')]:
 						setNode = self.result.newDocNode(None, 'set', None)
 						setNode.setProp('id', 'response')
 						setNode.setProp('appearance', 'title')
@@ -378,7 +474,7 @@ class ConfigGenerator:
 			# for each property ans association generate field elements
 			if self.addComments:
 				appearanceNode.addChild(self.result.newDocComment('Fields'))
-			properties = [x.prop('name') for x in ctx.xpathEval('dd:properties/dd:property')+ctx.xpathEval('dd:associations/dd:association')]
+			properties = [x.prop('name') for x in ctx.xpathEval('defaultns:properties/defaultns:property') + ctx.xpathEval('defaultns:associations/defaultns:association')]
 			for property in properties:
 				# create show and field nodes
 				showNode = self.result.newDocNode(None, 'show', None)
@@ -387,22 +483,28 @@ class ConfigGenerator:
 				fieldNode = self.result.newDocNode(None, 'field', None)
 				fieldNode.setProp('id', property)
 				if addLabelId:
-					fieldNode.setProp('label-id', 'label.'+property.replace(':','_'))
+					# activity: don't add label-id if property name ends with Outcome
+					if not property.endswith('Outcome'):
+						fieldNode.setProp('label-id', 'label.' + property.replace(':', '_'))
 				if addSets:
-					fieldNode.setProp('set', 'other')
+					# activiti : add to response set if property name ends with Outcome
+					if property.endswith('Outcome'):
+						fieldNode.setProp('set', 'response')
+					else:
+						fieldNode.setProp('set', 'other')
 				appearanceNode.addChild(fieldNode)
 
 			# populate all aspects for type
-			aspects = [x.content for x in ctx.xpathEval('dd:mandatory-aspects/dd:aspect')]
+			aspects = [x.content for x in ctx.xpathEval('defaultns:mandatory-aspects/defaultns:aspect')]
 			# for each aspect try to find its definition to extract all properties and associations
 			for aspect in aspects:
-				aspectDefNode = ctx.xpathEval('/dd:model/dd:aspects/dd:aspect[@name=\''+aspect+'\']')
+				aspectDefNode = ctx.xpathEval('/defaultns:model/defaultns:aspects/defaultns:aspect[@name=\'' + aspect + '\']')
 				# if list is not empty then choose first element (because we expect at most one aspect definition)
 				if len(aspectDefNode):
 					aspectDefNode = aspectDefNode[0]
 					# find all properties and associations
 					ctx.setContextNode(aspectDefNode)
-					fields = [x.prop('name') for x in ctx.xpathEval('dd:properties/dd:property') + ctx.xpathEval('dd:associations/dd:association')]
+					fields = [x.prop('name') for x in ctx.xpathEval('defaultns:properties/defaultns:property') + ctx.xpathEval('defaultns:associations/defaultns:association')]
 					# add them to tree
 					for field in fields:
 						# create show and field nodes
@@ -412,7 +514,7 @@ class ConfigGenerator:
 						fieldNode = self.result.newDocNode(None, 'field', None)
 						fieldNode.setProp('id', field)
 						if addLabelId:
-							fieldNode.setProp('label-id', 'label.'+field.replace(':','_'))
+							fieldNode.setProp('label-id', 'label.' + field.replace(':', '_'))
 						if addSets:
 							fieldNode.setProp('set', 'other')
 						appearanceNode.addChild(fieldNode)
@@ -425,7 +527,7 @@ class ConfigGenerator:
 					fieldNode = self.result.newDocNode(None, 'field', None)
 					fieldNode.setProp('id', aspect)
 					if addLabelId:
-						fieldNode.setProp('label-id', 'label.'+aspect.replace(':','_'))
+						fieldNode.setProp('label-id', 'label.' + aspect.replace(':', '_'))
 					if addSets:
 						fieldNode.setProp('set', 'other')
 					appearanceNode.addChild(fieldNode)
@@ -441,7 +543,7 @@ class ConfigGenerator:
 				appearanceNode.addChild(fieldNode)
 				# add transitions field
 				ctx.setContextNode(typeNode)
-				if 'bpm:startTask' not in [x.content for x in ctx.xpathEval('dd:parent')]:
+				if 'bpm:startTask' not in [x.content for x in ctx.xpathEval('defaultns:parent')]:
 					showNode = self.result.newDocNode(None, 'show', None)
 					showNode.setProp('id', 'transitions')
 					fieldVisNode.addChild(showNode)
@@ -467,34 +569,36 @@ class ConfigGenerator:
 					root.addChild(configNode)
 
 	def generateWorkflowBundle(self):
-		'''Generates workflow internationalization bundle'''
-
-		# set result type
-		self.xmlResult = False
-
-	def generateWorkflowBundle(self):
 		'''Generates workflow internationalization bundle (tasks and transitions)'''
 
 		# set result type
 		self.xmlResult = False
 		# validate process definition XML
-		ns = self.validateProcessDefinition()
+		lang = self.validateProcessDefinition()
+		ns = defNS[lang]
 		# get new xpath context
 		ctx = self.xml.xpathNewContext()
 		# register default namespace
-		ctx.xpathRegisterNs('dd', ns)
-		# get process name
-		procName = self.xml.getRootElement().prop('name').replace(':', '_')
-		# add process string
-		tmp = [procName+'.workflow']
-		# get tasks with non-empty name replacing : by _ and add them to temporary list
-		tmp.extend([procName+'.task.'+x.prop('name').replace(':', '_') for x in ctx.xpathEval('/dd:process-definition/dd:task-node/dd:task[@name!=\'\']')])
-		# get all transitions and add them to temporary list
-		tmp.extend([procName+'.node.'+x.parent.prop('name')+'.transition.'+x.prop('name') for x in ctx.xpathEval('/dd:process-definition/dd:task-node[@name!=\'\']/dd:transition[@name!=\'\']')])
-		# create result list
-		self.result = []
-		for x in tmp:
-			self.result.extend([x+'.title=', x+'.description='])
+		ctx.xpathRegisterNs('defaultns', ns)
+		if lang in ['jpdl-3.1', 'jpdl-3.2']:
+			# get process name
+			procName = self.xml.getRootElement().prop('name').replace(':', '_')
+			# add process string
+			tmp = [procName + '.workflow']
+			# get tasks with non-empty name replacing : by _ and add them to temporary list
+#			tmp.extend([procName + '.task.' + x.prop('name').replace(':', '_') for x in ctx.xpathEval('/defaultns:process-definition/defaultns:task-node/defaultns:task[@name!=\'\']')])
+			# get all transitions and add them to temporary list
+			tmp.extend([procName + '.node.' + x.parent.prop('name') + '.transition.' + x.prop('name') for x in ctx.xpathEval('/defaultns:process-definition/defaultns:task-node[@name!=\'\']/defaultns:transition[@name!=\'\']')])
+			# create result list
+			self.result = []
+			for x in tmp:
+				self.result.extend([x + '.title=', x + '.description='])
+		elif lang ==  'bpmn-2.0':
+			# get process name
+			procName = ctx.xpathEval('/defaultns:definitions/defaultns:process')[0].prop('name')
+			tmp = [procName + '.workflow']
+			# get all tasks
+			self.result = []
 
 
 	def generateShareBundle(self):
@@ -503,9 +607,38 @@ class ConfigGenerator:
 		self.xmlResult = False
 		# get new xpath context
 		ctx = self.xml.xpathNewContext()
-		self.result = [x.prop('label-id')+'=' for x in ctx.xpathEval('/alfresco-config/config/forms/form/appearance/field[@label-id!=\'\']')]
+		self.result = [x.prop('label-id') + '=' for x in ctx.xpathEval('/alfresco-config/config/forms/form/appearance/field[@label-id!=\'\']')]
 		# remove dplicates
 		self.result = list(set(self.result))
+
+	def generateModelBundle(self):
+		'''Generates model internationalization bundle'''
+		# set result type
+		self.xmlResult = False
+		# validate task model
+		ns = self.validateContentModel()
+		# get new xpath context
+		ctx = self.xml.xpathNewContext()
+		ctx.xpathRegisterNs('defaultns', ns)
+		# get content model name
+		modelName = self.xml.getRootElement().prop('name').replace(':', '_')
+		tmp = ['']
+		# extract all types
+		tmp.extend(['.type.'+x.prop('name').replace(':', '_') for x in ctx.xpathEval("/defaultns:model/defaultns:types/defaultns:type[@name!='']")])
+		# extract all aspects
+		tmp.extend(['.aspect.'+x.prop('name').replace(':', '_') for x in ctx.xpathEval("/defaultns:model/defaultns:aspects/defaultns:aspect[@name!='']")])
+		# extract all associations
+		tmp.extend(['.association.'+x.prop('name').replace(':', '_') for x in ctx.xpathEval("/defaultns:model//defaultns:associations/defaultns:association[@name!='']")])
+		# extract all properties
+		tmp.extend(['.property.'+x.prop('name').replace(':', '_') for x in ctx.xpathEval("/defaultns:model//defaultns:properties/defaultns:property[@name!='']")])
+		# result
+		self.result = []
+		for item in tmp:
+			self.result.extend([modelName+item+'.title=', modelName+item+'.description='])
+		# add list constraints items
+		for constraintNode in ctx.xpathEval("/defaultns:model//defaultns:constraints/defaultns:constraint[@name!='' and @type='LIST']"):
+			ctx.setContextNode(constraintNode)
+			self.result.extend(['listconstraint.'+constraintNode.prop('name').replace(':', '_')+'.'+x.content+'=' for x in ctx.xpathEval("defaultns:parameter[@name='allowedValues']/defaultns:list/defaultns:value/text()")])
 
 	def printListResult(self):
 		'''Prints result list'''
@@ -524,13 +657,14 @@ if __name__ == '__main__':
 	parser.add_argument('file', metavar='XML', help='XML file, containing process definition in jPDL/workflow model/share config (use \'-\' to read from stdin)')
 
 	# add group of arguments for specifying action to perform
-	actionArgs = parser.add_mutually_exclusive_group( required=True)
+	actionArgs = parser.add_mutually_exclusive_group(required=True)
 	actionArgs.add_argument('-s', '--swimlanes', action='store_true', help='generate swimlane tags for process definition')
 	actionArgs.add_argument('-m', '--model', action='store_true', help='generate skeleton of workflow model XML')
 	actionArgs.add_argument('-w', '--workflow-ui', action='store_true', help='generate skeleton of share-config-custom.xml for workflow UI rendering')
 	actionArgs.add_argument('-L', '--model-ui', action='store_true', help='generate skeleton of share-config-custom.xml for model UI rendering')
 	actionArgs.add_argument('-W', '--workflow-i18n', action='store_true', help='generate workflow internationalization bundle')
 	actionArgs.add_argument('-e', '--share-i18n', action='store_true', help='generate share internationalization bundle')
+	actionArgs.add_argument('-Z', '--model-i18n', action='store_true', help='generate model internationalization bundle')
 
 	# add arguments related to model generation
 	modelArgs = parser.add_argument_group('Model generation options')
@@ -541,7 +675,7 @@ if __name__ == '__main__':
 
 	# add arguments related to share config generation
 	workflowUIArgs = parser.add_argument_group('Workflow UI config generation options')
-	workflowUIArgs.add_argument('-n', '--process-name', default='', action='store', help='workflow process name to be used in generated config (adds $jbpm prefix automatically)')
+	workflowUIArgs.add_argument('-n', '--process-name', default='', action='store', help='workflow process name to be used in generated config (with prefix)')
 	workflowUIArgs.add_argument('-l', '--label-id', action='store_true', help='insert label-id attribute into each field tag')
 	workflowUIArgs.add_argument('-S', '--sets', action='store_true', help='add sets definitions and set correspoding field attribute')
 
@@ -579,8 +713,11 @@ if __name__ == '__main__':
 		elif args.share_i18n:
 			# generate share internationalization bundle
 			confgen.generateShareBundle()
+		elif args.model_i18n:
+			# generate model internationalization bundle
+			confgen.generateModelBundle()
 	except ValidationException, e:
-		print('XML validation failed: '+e.message)
+		print('XML validation failed: ' + e.message)
 		sys.exit(1)
 
 	# do diffrent stuff depending on result type
