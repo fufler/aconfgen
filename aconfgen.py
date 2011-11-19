@@ -595,10 +595,8 @@ class ConfigGenerator:
 				self.result.extend([x + '.title=', x + '.description='])
 		elif lang ==  'bpmn-2.0':
 			# get process name
-			procName = ctx.xpathEval('/defaultns:definitions/defaultns:process')[0].prop('name')
-			tmp = [procName + '.workflow']
-			# get all tasks
-			self.result = []
+			procName = ctx.xpathEval('/defaultns:definitions/defaultns:process')[0].prop('id')
+			self.result = [procName + '.workflow.title=', procName + '.workflow.description=']
 
 
 	def generateShareBundle(self):
