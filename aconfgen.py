@@ -163,7 +163,7 @@ class ConfigGenerator:
 		ctx.xpathRegisterNs('defaultns', ns)
 
 		# populate swimlane list
-		swimlanes = [x.prop('swimlane') for x in ctx.xpathEval('/defaultns:process-definition/defaultns:task-node/defaultns:task[@swimlane != \'\']')]
+		swimlanes = set([x.prop('swimlane') for x in ctx.xpathEval('/dd:process-definition/dd:task-node/dd:task[@swimlane != \'\']')])
 		# iterate through swimlane list and generate nodes
 		for swimlane in swimlanes:
 			# create new node
@@ -207,11 +207,12 @@ class ConfigGenerator:
 		self.result = libxml2.parseMemory(modelTemplate, len(modelTemplate))
 		root = self.result.getRootElement()
 		# add metadata
-		if self.addComments:
-			root.addChild(self.result.newDocComment('Model metadata'))
-		root.addChild(self.result.newDocNode(None, 'description', 'Task model for ' + self.xmlFile))
-		root.addChild(self.result.newDocNode(None, 'author', os.getenv('USER')))
-		root.addChild(self.result.newDocNode(None, 'version', '1.0'))
+		if addMetaData:
+			if self.addComments:
+				root.addChild(self.result.newDocComment('Model metadata'))
+			root.addChild(self.result.newDocNode(None, 'description', 'Task model for '+self.xmlFile))
+			root.addChild(self.result.newDocNode(None, 'author', os.getenv('USER')))
+			root.addChild(self.result.newDocNode(None, 'version', '1.0'))
 		# add import section
 		if self.addComments:
 			root.addChild(self.result.newDocComment('Import necessary namespaces'))
