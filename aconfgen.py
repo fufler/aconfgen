@@ -163,7 +163,7 @@ class ConfigGenerator:
 		ctx.xpathRegisterNs('defaultns', ns)
 
 		# populate swimlane list
-		swimlanes = set([x.prop('swimlane') for x in ctx.xpathEval('/dd:process-definition/dd:task-node/dd:task[@swimlane != \'\']')])
+		swimlanes = set([x.prop('swimlane') for x in ctx.xpathEval('/defaultns:process-definition/defaultns:task-node/defaultns:task[@swimlane != \'\']')])
 		# iterate through swimlane list and generate nodes
 		for swimlane in swimlanes:
 			# create new node
