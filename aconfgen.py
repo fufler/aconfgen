@@ -325,7 +325,7 @@ class ConfigGenerator:
 					propertyNode = self.result.newDocNode(None, 'property', None)
 					overridesNode.addChild(propertyNode)
 					propertyNode.setProp('name', 'bpm:outcomePropertyName')
-					propertyNode.addChild(self.result.newDocNode(None, 'default', taskName.replace(ns+':', '{'+self.buildNamespace(ns)+'}')))
+					propertyNode.addChild(self.result.newDocNode(None, 'default', taskName.replace(ns+':', '{'+self.buildNamespace(ns)+'}')+'Outcome'))
 				typeNode.addChild(overridesNode)
 			# add mandatory aspects
 			if addMandatoryAspects:
