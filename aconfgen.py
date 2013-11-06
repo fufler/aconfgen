@@ -65,7 +65,7 @@ class ConfigGenerator:
 
 		'''
 		# get path to script
-		self.scriptPath = os.path.dirname(sys.argv[0])
+		self.scriptPath = os.path.dirname(os.path.realpath(sys.argv[0]))
 		# default options
 		self.addComments = addComments
 		self.xmlFile = xmlFile
