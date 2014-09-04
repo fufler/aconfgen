@@ -1,0 +1,25 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<!DOCTYPE beans PUBLIC '-//SPRING//DTD BEAN//EN' 'http://www.springframework.org/dtd/spring-beans.dtd'>
+<beans>
+    <bean id="{{ bean_id }}" parent="dictionaryModelBootstrap" depends-on="dictionaryBootstrap">
+        {% if labels %}
+        <property name="labels">
+            <list>
+                {% for l in labels %}
+                <value>{{ l }}</value>
+                {% endfor %}
+            </list>
+        </property>
+        {% endif %}
+        {% if models %}
+        <property name="models">
+            <list>
+                {% for m in models %}
+                <value>{{ m }}</value>
+                {% endfor %}
+            </list>
+        </property>
+        {% endif %}
+    </bean>
+ 
+</beans>

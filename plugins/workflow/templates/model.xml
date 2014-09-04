@@ -1,0 +1,81 @@
+<?xml version="1.0" encoding="utf-8"?>
+<model xmlns="http://www.alfresco.org/model/dictionary/1.0" name="{{ prefix }}:{{ name }}">
+    {% if with_metadata %}
+    <author>{{ author }}</author>
+    <version>{{ version }}</version>
+    <description>{{ description }}</description>
+    {% endif %}
+
+    <imports>
+        <import uri="http://www.alfresco.org/model/dictionary/1.0" prefix="d" />
+        <import uri="http://www.alfresco.org/model/content/1.0" prefix="cm" />
+        <import uri="http://www.alfresco.org/model/bpm/1.0" prefix="bpm" />
+    </imports>
+
+    <namespaces>
+        {% for p in prefixes %}
+        <namespace prefix="{{ p }}" uri="https://github.com/fufler/aconfgen/prefix/{{ p }}" />
+        {% endfor %}
+    </namespaces>
+    
+    <types>
+        {% for t in types %}
+        <type name="{{ t.name }}">
+            {% if t.start %}
+            <parent>bpm:startTask</parent>
+            {% else %}
+            <parent>bpm:activitiOutcomeTask</parent>
+            <properties>
+                <property name="{{ t.name }}Outcome">
+                    <type>d:text</type>
+                    <default>CHANGE_ME</default>
+                    <constraints>
+                        <constraint type="LIST">
+                            <parameter name="allowedValues">
+                                <list>
+                                    <value>CHANGE_ME</value>
+                                </list>
+                            </parameter>
+                        </constraint>
+                    </constraints>
+                </property>
+            </properties>
+            <overrides>
+                <property name="bpm:outcomePropertyName">
+                    <default>{http://alvexcore.com/prefix/alvexwfat}controlOutcome</default>
+                </property>
+            </overrides>
+            {% endif %}
+            {% if with_mandatory_aspects %}
+            <mandatory-aspects>
+                <aspect>CHANGE_ME</aspect>
+            </mandatory-aspects>
+            {% endif %}
+        </type>
+        {% endfor %}
+    </types>
+    {% if with_aspects %}
+    <aspects>
+        <aspect name="{{ prefix }}:CHANGE_ME">
+            <properties>
+                <property name="{{ prefix }}:CHANGE_ME">
+                    <type>d:text</type>
+                </property>
+            </properties>
+            <associations>
+                <association name="{{ prefix }}:CHANGE_ME">
+                    <source>
+                        <many>true</many>
+                        <mandatory>false</mandatory>
+                    </source>
+                    <target>
+                        <class>cm:content</class>
+                        <many>true</many>
+                        <mandatory>false</mandatory>
+                    </target>
+                </association>
+            </associations>
+        </aspect>
+    </aspects>
+    {% endif %}
+</model>
